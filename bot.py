@@ -48,30 +48,26 @@ class Consulta:
 	student_name: str 	= attr.ib(converter=str, default="")
 	course_name:str 	= attr.ib(converter=str, default="N/A")
 
-class GeconsultasBot:
+class GeconsultaInstanceBot:
 
-	def __init__(self):
+	def __init__(self, chat_id, auth_hash):
 
 		# Set initial values
+		self.chat_id 		= chat_id
 		self.consulta 		= Consulta()
 		self.input_state 	= InputState.INPUT_STATE_IDLE
 		self.auth_state 	= AuthState.AUTH_STATE_IDLE
 
-		# Fetch API token and hashed password from environment variables
-		self.token 		= os.getenv("T_API_TOKEN")
-		self.auth_hash 	= os.getenv("T_AUTH_HASH")
+		# Receive password hash for authentication
+		self.auth_hash 	= auth_hash
 
-		# Halt runtime if token or hash aren't set
-		if not self.token or not self.auth_hash:
+		# Halt runtime if hash isn't present
+		if not self.auth_hash:
 			raise RuntimeError
 
-		# Instantiate Updater and Dispatcher
-		self.updater 	= Updater(self.token, use_context=True)
-		self.dispatcher = self.updater.dispatcher
+		self.run()
 
 	def run(self):
-
-		self.add_handlers()
 
 		# Build state-function map for input steps
 		self.input_state_map = {
@@ -92,35 +88,6 @@ class GeconsultasBot:
 			AuthState.AUTH_IS_AUTHENTICATED: 	self.handle_is_authenticated
 		}
 
-		self.updater.start_polling()
-		self.updater.idle()
-
-	def add_handlers(self):
-
-		# Create and add command handlers
-		start_command 		= CommandHandler("start", self.start)
-		help_command 		= CommandHandler("help", self.show_help)
-		register_command 	= CommandHandler("registrar", self.register)
-		restart_command 	= CommandHandler("restart", self.restart)
-		auth_command		= CommandHandler("auth", self.auth)
-		logout_command		= CommandHandler("auth", self.logout)
-
-		# Create message handler
-		message_handler = MessageHandler(Filters.text, self.handle_message)
-
-		# data and flow
-		self.dispatcher.add_handler(start_command)
-		self.dispatcher.add_handler(help_command)
-		self.dispatcher.add_handler(register_command)
-		self.dispatcher.add_handler(restart_command)
-
-		# authentication
-		self.dispatcher.add_handler(auth_command)
-		self.dispatcher.add_handler(logout_command)
-
-		# message handler
-		self.dispatcher.add_handler(message_handler)
-
 	# Command handlers
 
 	def start(self, update, context):
@@ -129,6 +96,8 @@ class GeconsultasBot:
 		self.restart(update, context, True)
 		self.logout(update, context, True)
 		self.show_help(update, context)
+
+		logger.info("Bot instance started by user {id}".format(id=update.message.chat.id))
 
 	def show_help(self, update, context):
 
@@ -140,7 +109,6 @@ class GeconsultasBot:
 		update.message.reply_text(help_text)
 
 	def handle_message(self, update, context):
-
 		state_function = None
 
 		# Take inputs only when permitted
@@ -183,6 +151,8 @@ class GeconsultasBot:
 			self.consulta = Consulta()
 			self.input_state = InputState.INPUT_STATE_IDLE
 
+			logger.info("Data entry aborted by user {id}".format(id=update.message.chat.id))
+
 			# User update
 			if not noupdate:
 				update.message.reply_text("¡Datos reseteados!")
@@ -206,13 +176,21 @@ class GeconsultasBot:
 		if self.auth_state == AuthState.AUTH_IS_AUTHENTICATED:
 
 			# Reset state and update user
+			self.restart(update, context, True)
 			self.auth_state = AuthState.AUTH_STATE_IDLE
+
+			logger.info("User {id} has logged out succesfully".format(id=update.message.chat.id))
 
 			if not noupdate:
 				update.message.reply_text("Sesión cerrada con éxito 🙂 ¡Nos vemos!")
 
-	# Auth handlers
+			# If logout is succesful, return True
+			return True
 
+		# If logout is not performed, return False
+		return False
+
+	# Auth handlers
 	def handle_auth_idle(self, update, context):
 		pass
 
@@ -226,7 +204,7 @@ class GeconsultasBot:
 
 				# Log succesful authentication
 				logger.info("Auth completed by user {id}".format(id=update.message.chat.id))
-				update.message.reply_text("¡Autenticación completa! 😎 Ahora puedes usar /registrar para comenzar la entrada de datos.")
+				update.message.reply_text("¡Autenticación completa! 😎 Ahora puedes usar /registrar para comenzar la entrada de datos 📝")
 			else:
 
 				# Log failed authentication attempt
@@ -281,6 +259,99 @@ class GeconsultasBot:
 
 		# Return a SHA-256 hash of the given string
 		return hashlib.sha256(string.encode('utf-8')).hexdigest()
+
+
+class GeconsultasBot():
+
+	def __init__(self):
+
+		# Fetch API token and hashed password from environment variables
+		self.token 		= os.getenv("T_API_TOKEN")
+		self.auth_hash 	= os.getenv("T_AUTH_HASH")
+
+		# Halt runtime if token or hash aren't set
+		if not self.token or not self.auth_hash:
+			raise RuntimeError
+
+		# Create active user map
+		self.user_map = {}
+
+		# Instantiate Updater and Dispatcher
+		self.updater 	= Updater(self.token, use_context=True)
+		self.dispatcher = self.updater.dispatcher
+
+	def run(self):
+
+		# Add handlers and start bot
+		self.add_handlers()
+
+		self.updater.start_polling()
+		self.updater.idle()
+
+	def add_handlers(self):
+
+		# Create and add command handlers
+		start_command 		= CommandHandler("start", self.start)
+		help_command 		= CommandHandler("help", self.show_help)
+		register_command 	= CommandHandler("registrar", self.register)
+		restart_command 	= CommandHandler("restart", self.restart)
+		auth_command		= CommandHandler("auth", self.auth)
+		logout_command		= CommandHandler("logout", self.logout)
+
+		# Create message handler
+		message_handler = MessageHandler(Filters.text, self.handle_message)
+
+		# Data and flow
+		self.dispatcher.add_handler(start_command)
+		self.dispatcher.add_handler(help_command)
+		self.dispatcher.add_handler(register_command)
+		self.dispatcher.add_handler(restart_command)
+
+		# Authentication
+		self.dispatcher.add_handler(auth_command)
+		self.dispatcher.add_handler(logout_command)
+
+		# Message handler
+		self.dispatcher.add_handler(message_handler)
+
+	# Command Handlers
+	def start(self, update, context):
+		if update.message.chat.id is not None:
+
+			# Capture chat ID and assign a new instance bot if it's not already present
+			chat_id = update.message.chat.id
+			if chat_id not in self.user_map:
+				self.user_map[chat_id] = GeconsultaInstanceBot(chat_id, self.auth_hash)
+
+			self.call_instance_method(update, context, "start")
+
+	def show_help(self, update, context):
+		self.call_instance_method(update, context, "show_help")
+
+	def register(self, update, context):
+		self.call_instance_method(update, context, "register")
+
+	def restart(self, update, context):
+		self.call_instance_method(update, context, "restart")
+
+	def auth(self, update, context):
+		self.call_instance_method(update, context, "auth")
+
+	def logout(self, update, context):
+		logged_out = self.call_instance_method(update, context, "logout")
+		if update.message.chat.id in self.user_map and logged_out:
+			self.user_map.pop(update.message.chat.id)
+
+	# Message handlers
+	def handle_message(self, update, context):
+		self.call_instance_method(update, context, "handle_message")
+
+	# Auxiliary methods
+	def call_instance_method(self, update, context, method):
+		if update.message.chat.id in self.user_map:
+			user_bot_instance = self.user_map[update.message.chat.id]
+			if hasattr(user_bot_instance, method):
+				return getattr(user_bot_instance, method)(update, context)
 
 if __name__ == "__main__":
 	bot = GeconsultasBot()
