@@ -8,7 +8,9 @@ from enum import Enum
 
 # Telegram bot API
 import telegram
-from telegram.ext import Updater, CommandHandler, MessageHandler, Filters
+from telegram import ReplyKeyboardMarkup
+from telegram import InlineKeyboardMarkup, InlineKeyboardButton
+from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, CallbackQueryHandler
 
 # Instantiate and configure logger
 logging.basicConfig(
@@ -24,15 +26,23 @@ class InputState(Enum):
 	INPUT_COURSE_NAME 	= 2
 	INPUT_ASSIST_NAME 	= 3
 	INPUT_AUX_NAME 		= 4
-	INPUT_START_DATE 	= 5	
-	INPUT_END_DATE 		= 6
-	INPUT_STATE_END 	= 7
+	INPUT_RECEIVED_DATE = 5
+	INPUT_START_DATE 	= 6	
+	INPUT_END_DATE 		= 7
+	INPUT_STATE_END 	= 8
 
 # State enum for authentication steps
 class AuthState(Enum):
 	AUTH_STATE_IDLE 		= 0
 	AUTH_IS_AUTHENTICATING 	= 1
 	AUTH_IS_AUTHENTICATED 	= 2
+
+# Utility method for computing SHA-256 hash
+def hash_string(string):
+
+	# Return a SHA-256 hash of the given string
+	return hashlib.sha256(string.encode('utf-8')).hexdigest()
+
 
 # Data class for consulta objects
 @attr.s
@@ -45,15 +55,15 @@ class Consulta:
 	# Names and course information
 	assistant_name:str 	= attr.ib(converter=str, default="")
 	auxiliary_name:str 	= attr.ib(converter=str, default="")
-	student_name: str 	= attr.ib(converter=str, default="")
+	student_name:str 	= attr.ib(converter=str, default="")
 	course_name:str 	= attr.ib(converter=str, default="N/A")
 
 class GeconsultaInstanceBot:
 
-	def __init__(self, chat_id, auth_hash):
+	def __init__(self, user_id, auth_hash):
 
 		# Set initial values
-		self.chat_id 		= chat_id
+		self.user_id 		= user_id
 		self.consulta 		= Consulta()
 		self.input_state 	= InputState.INPUT_STATE_IDLE
 		self.auth_state 	= AuthState.AUTH_STATE_IDLE
@@ -76,6 +86,7 @@ class GeconsultaInstanceBot:
 			InputState.INPUT_COURSE_NAME: 	self.handle_course_name,
 			InputState.INPUT_ASSIST_NAME: 	self.handle_assist_name,
 			InputState.INPUT_AUX_NAME:		self.handle_aux_name,
+			InputState.INPUT_RECEIVED_DATE:	self.handle_received_date,
 			InputState.INPUT_START_DATE:	self.handle_start_date,
 			InputState.INPUT_END_DATE:		self.handle_end_date,
 			InputState.INPUT_STATE_END: 	self.handle_input_end
@@ -89,7 +100,6 @@ class GeconsultaInstanceBot:
 		}
 
 	# Command handlers
-
 	def start(self, update, context):
 
 		# Start from the top; reset everything and show help
@@ -97,7 +107,7 @@ class GeconsultaInstanceBot:
 		self.logout(update, context, True)
 		self.show_help(update, context)
 
-		logger.info("Bot instance started by user {id}".format(id=update.message.chat.id))
+		logger.info("Bot instance started by user {id}".format(id=update.message.from_user.id))
 
 	def show_help(self, update, context):
 
@@ -107,20 +117,6 @@ class GeconsultaInstanceBot:
 					"➡️ Usa el comando /registrar para ingresar datos 📝\n" + \
 					"➡️ Usa el comando /restart para borrar los datos y comenzar desde cero 🔄"
 		update.message.reply_text(help_text)
-
-	def handle_message(self, update, context):
-		state_function = None
-
-		# Take inputs only when permitted
-		if self.input_state.value > InputState.INPUT_STATE_IDLE.value and self.auth_state == AuthState.AUTH_IS_AUTHENTICATED:
-			state_function = self.input_state_map[self.input_state]
-
-		elif self.auth_state == AuthState.AUTH_IS_AUTHENTICATING:
-			state_function = self.auth_state_map[self.auth_state]
-
-		# If a state function has been specified, call it and pass down parameters
-		if state_function is not None:
-			state_function(update, context)
 
 	def register(self, update, context):
 
@@ -134,7 +130,7 @@ class GeconsultaInstanceBot:
 			self.consulta = Consulta()
 		
 		# Log data entry attempt
-		logger.info("Data entry requested by user {id}".format(id=update.message.chat.id))
+		logger.info("Data entry requested by user {id}".format(id=update.message.from_user.id))
 
 		# Set input state and update user
 		self.input_state = InputState.INPUT_STUDENT_NAME
@@ -151,7 +147,7 @@ class GeconsultaInstanceBot:
 			self.consulta = Consulta()
 			self.input_state = InputState.INPUT_STATE_IDLE
 
-			logger.info("Data entry aborted by user {id}".format(id=update.message.chat.id))
+			logger.info("Data entry aborted by user {id}".format(id=update.message.from_user.id))
 
 			# User update
 			if not noupdate:
@@ -166,7 +162,7 @@ class GeconsultaInstanceBot:
 			return
 
 		# Log authentication attempt
-		logger.info("Auth requested by user {id}".format(id=update.message.chat.id))
+		logger.info("Auth requested by user {id}".format(id=update.message.from_user.id))
 
 		# Set Auth state and update user
 		self.auth_state = AuthState.AUTH_IS_AUTHENTICATING
@@ -179,7 +175,7 @@ class GeconsultaInstanceBot:
 			self.restart(update, context, True)
 			self.auth_state = AuthState.AUTH_STATE_IDLE
 
-			logger.info("User {id} has logged out succesfully".format(id=update.message.chat.id))
+			logger.info("User {id} has logged out succesfully".format(id=update.message.from_user.id))
 
 			if not noupdate:
 				update.message.reply_text("Sesión cerrada con éxito 🙂 ¡Nos vemos!")
@@ -190,6 +186,29 @@ class GeconsultaInstanceBot:
 		# If logout is not performed, return False
 		return False
 
+
+	# Inline handler
+	def handle_inline_query(self, update, context):
+		print("GeconsultaInstanceBot::handle_inline_query")
+
+	# Message handler
+	def handle_message(self, update, context):
+		state_function = None
+
+		# Take inputs only when permitted
+		if self.input_state.value > InputState.INPUT_STATE_IDLE.value and self.auth_state == AuthState.AUTH_IS_AUTHENTICATED:
+			state_function = self.input_state_map[self.input_state]
+
+		elif self.auth_state == AuthState.AUTH_IS_AUTHENTICATING:
+			state_function = self.auth_state_map[self.auth_state]
+
+		if self.auth_state != AuthState.AUTH_IS_AUTHENTICATING:
+			logger.info("Handling message {msg} by user {id}".format(msg = update.message.text, id=update.message.from_user.id))
+
+		# If a state function has been specified, call it and pass down parameters
+		if state_function is not None:
+			state_function(update, context)
+
 	# Auth handlers
 	def handle_auth_idle(self, update, context):
 		pass
@@ -198,25 +217,25 @@ class GeconsultaInstanceBot:
 		if update.message.text is not None:
 
 			# Compute the password hash and evaluate against the pre-set value
-			password_hash = self.hash_string(update.message.text)
+			password_hash = hash_string(update.message.text)
 			if password_hash == self.auth_hash:
 				self.auth_state = AuthState.AUTH_IS_AUTHENTICATED
 
 				# Log succesful authentication
-				logger.info("Auth completed by user {id}".format(id=update.message.chat.id))
+				logger.info("Auth completed by user {id}".format(id=update.message.from_user.id))
 				update.message.reply_text("¡Autenticación completa! 😎 Ahora puedes usar /registrar para comenzar la entrada de datos 📝")
 			else:
 
 				# Log failed authentication attempt
-				logger.info("Auth attempt failed by user {id}".format(id=update.message.chat.id))
+				logger.info("Auth attempt failed by user {id}".format(id=update.message.from_user.id))
 				update.message.reply_text("Contraseña inválida, por favor intenta nuevamente.")
 
 
 	def handle_is_authenticated(self, update, context):
 		pass
+	
 
 	# Input handlers
-
 	def handle_input_idle(self, update, context):
 		pass
 
@@ -237,12 +256,17 @@ class GeconsultaInstanceBot:
 
 	def handle_course_name(self, update, context):
 		# TODO: implement this stuff :P
-		print("sam::course_name")
+		button = InlineKeyboardButton("Sample Button", callback_data = "sample_button")
+		keyboard = InlineKeyboardMarkup([[button], [button, button]])
+		update.message.reply_text("test", reply_markup = keyboard)
 
 	def handle_assist_name(self, update, context):
 		pass
 
 	def handle_aux_name(self, update, context):
+		pass
+
+	def handle_received_date(self, update, context):
 		pass
 
 	def handle_start_date(self, update, context):
@@ -253,12 +277,6 @@ class GeconsultaInstanceBot:
 
 	def handle_input_end(self, update, context):
 		pass
-
-	# Auxiliary methods
-	def hash_string(self, string):
-
-		# Return a SHA-256 hash of the given string
-		return hashlib.sha256(string.encode('utf-8')).hexdigest()
 
 
 class GeconsultasBot():
@@ -314,14 +332,21 @@ class GeconsultasBot():
 		# Message handler
 		self.dispatcher.add_handler(message_handler)
 
+		# Inline handler
+		self.dispatcher.add_handler(CallbackQueryHandler(self.handle_inline_query))
+
+	# Inline query handler
+	def handle_inline_query(self, update, context):
+		self.call_instance_method(update, context, "handle_inline_query", True)
+
 	# Command Handlers
 	def start(self, update, context):
-		if update.message.chat.id is not None:
+		if update.message.from_user.id is not None:
 
 			# Capture chat ID and assign a new instance bot if it's not already present
-			chat_id = update.message.chat.id
-			if chat_id not in self.user_map:
-				self.user_map[chat_id] = GeconsultaInstanceBot(chat_id, self.auth_hash)
+			user_id = update.message.from_user.id
+			if user_id not in self.user_map:
+				self.user_map[user_id] = GeconsultaInstanceBot(user_id, self.auth_hash)
 
 			self.call_instance_method(update, context, "start")
 
@@ -339,18 +364,29 @@ class GeconsultasBot():
 
 	def logout(self, update, context):
 		logged_out = self.call_instance_method(update, context, "logout")
-		if update.message.chat.id in self.user_map and logged_out:
-			self.user_map.pop(update.message.chat.id)
+		if update.message.from_user.id in self.user_map and logged_out:
+			self.user_map.pop(update.message.from_user.id)
 
 	# Message handlers
 	def handle_message(self, update, context):
 		self.call_instance_method(update, context, "handle_message")
 
 	# Auxiliary methods
-	def call_instance_method(self, update, context, method):
-		if update.message.chat.id in self.user_map:
-			user_bot_instance = self.user_map[update.message.chat.id]
-			if hasattr(user_bot_instance, method):
+	def call_instance_method(self, update, context, method, is_inline = False):
+
+		# No bot instance by default
+		user_bot_instance = None
+
+		# Try to resolve user_id from CallbackQuery object first
+		if is_inline and update.callback_query.from_user.id in self.user_map:
+			user_bot_instance = self.user_map[update.callback_query.from_user.id]
+
+		# Else, try to resolve user_id from Message object
+		elif update.message.from_user.id in self.user_map:
+			user_bot_instance = self.user_map[update.message.from_user.id]
+
+		# If bot instance is found and has method, call it
+		if user_bot_instance is not None and hasattr(user_bot_instance, method):
 				return getattr(user_bot_instance, method)(update, context)
 
 if __name__ == "__main__":
