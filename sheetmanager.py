@@ -75,17 +75,22 @@ class Sheet():
 		except Exception as e:
 			print("Sheet::__init__ Sheet instance init failed; check spreadsheet / worksheet names")
 
+	def get_data_from_field(self, field):
+		if self.is_ready():
+			key = field.get_key()
+			return [ row_dict[key] for row_dict in self.worksheet_data.get_all_records()]
+
+		return None
+
 	# Helper method to check if instance is ready
 	def is_ready(self):
 		return self.sheet_state == SheetState.SHEET_READY
 
 	# Method for entering consultas into the REGISTER worksheet
 	def enter_row_data(self, consulta = None):
-		if not self.is_ready():
-			return
-
-		# @salonso testing
-		self.worksheet_register.insert_row([consulta, 2, "=A2+B2"], REGISTRY_INPUT_ROW_OFFSET, "USER_ENTERED")
+		if self.is_ready():
+			# @salonso testing
+			self.worksheet_register.insert_row([consulta, 2, "=A2+B2"], REGISTRY_INPUT_ROW_OFFSET, "USER_ENTERED")
 
 # Simple class for managing spreadsheet operations using Google Sheets API
 class SheetManager():
@@ -147,6 +152,13 @@ class SheetManager():
 
 			# Request an insert_row call with the consulta data
 			self.sheet.enter_row_data(consulta_item)
+
+	def get_data_from_field_functor(self, field):
+
+		# Return data callback for fixed field
+		def get_data_from_field():
+			return self.sheet.get_data_from_field(field)
+		return get_data_from_field
 
 if __name__ == "__main__":
 

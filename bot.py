@@ -12,6 +12,10 @@ from telegram import ReplyKeyboardMarkup
 from telegram import InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, CallbackQueryHandler
 
+# Support modules
+from sheetmanager import SheetManager, DataSheetEnum
+from inlineselector import InlineSelector
+
 # Instantiate and configure logger
 logging.basicConfig(
 	level = logging.INFO, format = "%(asctime)s - %(name)s - %(levelname)s - %(message)s,"
@@ -43,7 +47,6 @@ def hash_string(string):
 	# Return a SHA-256 hash of the given string
 	return hashlib.sha256(string.encode('utf-8')).hexdigest()
 
-
 # Data class for consulta objects
 @attr.s
 class Consulta:
@@ -60,7 +63,7 @@ class Consulta:
 
 class GeconsultaInstanceBot:
 
-	def __init__(self, user_id, auth_hash):
+	def __init__(self, user_id, auth_hash, sheet_manager):
 
 		# Set initial values
 		self.user_id 		= user_id
@@ -70,6 +73,12 @@ class GeconsultaInstanceBot:
 
 		# Receive password hash for authentication
 		self.auth_hash 	= auth_hash
+
+		# Instantiate inline selectors
+		course_name_field = DataSheetEnum.COURSE_NAME
+		assist_name_field = DataSheetEnum.ASSIST_NAME
+		self.course_name_selector = InlineSelector(sheet_manager.get_data_from_field_functor(course_name_field))
+		self.assist_name_selector = InlineSelector(sheet_manager.get_data_from_field_functor(assist_name_field))
 
 		# Halt runtime if hash isn't present
 		if not self.auth_hash:
@@ -145,6 +154,9 @@ class GeconsultaInstanceBot:
 
 			# Reset input state and input object
 			self.consulta = Consulta()
+
+			# todo: @salonso reset inline objects to their original state
+
 			self.input_state = InputState.INPUT_STATE_IDLE
 
 			logger.info("Data entry aborted by user {id}".format(id=update.message.from_user.id))
@@ -189,7 +201,7 @@ class GeconsultaInstanceBot:
 
 	# Inline handler
 	def handle_inline_query(self, update, context):
-		print("GeconsultaInstanceBot::handle_inline_query")
+		print("GeconsultaInstanceBot::handle_inline_query", update.callback_query.data)
 
 	# Message handler
 	def handle_message(self, update, context):
@@ -233,7 +245,6 @@ class GeconsultaInstanceBot:
 
 	def handle_is_authenticated(self, update, context):
 		pass
-	
 
 	# Input handlers
 	def handle_input_idle(self, update, context):
@@ -246,8 +257,12 @@ class GeconsultaInstanceBot:
 			student_name = update.message.text
 			self.consulta.student_name = student_name
 
+			# Update state
 			self.input_state = InputState.INPUT_COURSE_NAME
-			update.message.reply_text("¡Genial! Ahora dime el código de materia ☺️")
+
+			# Create inline keyboard and reply
+			keyboard = self.course_name_selector.get_inline_keyboard()
+			update.message.reply_text("¡Genial! Ahora selecciona el nombre de la materia ☺️", reply_markup = keyboard)
 
 		else:
 			reply_text = "Parece que no enviaste un nombre válido 🤔\n" + \
@@ -256,9 +271,7 @@ class GeconsultaInstanceBot:
 
 	def handle_course_name(self, update, context):
 		# TODO: implement this stuff :P
-		button = InlineKeyboardButton("Sample Button", callback_data = "sample_button")
-		keyboard = InlineKeyboardMarkup([[button], [button, button]])
-		update.message.reply_text("test", reply_markup = keyboard)
+		pass
 
 	def handle_assist_name(self, update, context):
 		pass
@@ -278,7 +291,6 @@ class GeconsultaInstanceBot:
 	def handle_input_end(self, update, context):
 		pass
 
-
 class GeconsultasBot():
 
 	def __init__(self):
@@ -293,6 +305,9 @@ class GeconsultasBot():
 
 		# Create active user map
 		self.user_map = {}
+
+		# Create sheets object and retrieve data
+		self.sheet_manager = SheetManager()
 
 		# Instantiate Updater and Dispatcher
 		self.updater 	= Updater(self.token, use_context=True)
@@ -309,12 +324,12 @@ class GeconsultasBot():
 	def add_handlers(self):
 
 		# Create and add command handlers
-		start_command 		= CommandHandler("start", self.start)
-		help_command 		= CommandHandler("help", self.show_help)
-		register_command 	= CommandHandler("registrar", self.register)
-		restart_command 	= CommandHandler("restart", self.restart)
-		auth_command		= CommandHandler("auth", self.auth)
-		logout_command		= CommandHandler("logout", self.logout)
+		start_command 		= CommandHandler("start", 		self.start)
+		help_command 		= CommandHandler("help", 		self.show_help)
+		register_command 	= CommandHandler("registrar", 	self.register)
+		restart_command 	= CommandHandler("restart", 	self.restart)
+		auth_command		= CommandHandler("auth", 		self.auth)
+		logout_command		= CommandHandler("logout", 		self.logout)
 
 		# Create message handler
 		message_handler = MessageHandler(Filters.text, self.handle_message)
@@ -346,7 +361,7 @@ class GeconsultasBot():
 			# Capture chat ID and assign a new instance bot if it's not already present
 			user_id = update.message.from_user.id
 			if user_id not in self.user_map:
-				self.user_map[user_id] = GeconsultaInstanceBot(user_id, self.auth_hash)
+				self.user_map[user_id] = GeconsultaInstanceBot(user_id, self.auth_hash, self.sheet_manager)
 
 			self.call_instance_method(update, context, "start")
 
