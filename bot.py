@@ -80,6 +80,9 @@ class GeconsultaInstanceBot:
 		self.course_name_selector = InlineSelector(sheet_manager.get_data_from_field_functor(course_name_field))
 		self.assist_name_selector = InlineSelector(sheet_manager.get_data_from_field_functor(assist_name_field))
 
+		# Instantiate selector map
+		self.selector_map = {}
+
 		# Halt runtime if hash isn't present
 		if not self.auth_hash:
 			raise RuntimeError
@@ -146,7 +149,12 @@ class GeconsultaInstanceBot:
 		state_function = self.input_state_map[self.input_state]
 
 		update.message.reply_text("Por favor, sigue los pasos para registrar tu consulta 🙂")
-		update.message.reply_text("Introduce el nombre del estudiante 📖⬇️")
+		update.message.reply_text("Introduce el nombre del estudiante 📖")
+
+	def restart_inline_selectors(self):
+		self.course_name_selector.reset()
+		self.assist_name_selector.reset()
+		self.selector_map = {}
 
 	def restart(self, update, context, noupdate=False):
 
@@ -154,10 +162,10 @@ class GeconsultaInstanceBot:
 
 			# Reset input state and input object
 			self.consulta = Consulta()
-
-			# todo: @salonso reset inline objects to their original state
-
 			self.input_state = InputState.INPUT_STATE_IDLE
+
+			# Reset inline objects to their original state
+			self.restart_inline_selectors()
 
 			logger.info("Data entry aborted by user {id}".format(id=update.message.from_user.id))
 
@@ -198,10 +206,16 @@ class GeconsultaInstanceBot:
 		# If logout is not performed, return False
 		return False
 
-
 	# Inline handler
 	def handle_inline_query(self, update, context):
-		print("GeconsultaInstanceBot::handle_inline_query", update.callback_query.data)
+		if update.callback_query.message.message_id not in self.selector_map:
+			self.selector_map[update.callback_query.message.message_id] = self.current_selector()
+
+		# Only accept callback queries as input
+		if update.callback_query.data is not None:
+			state_function = self.input_state_map[self.input_state]
+			selector = self.selector_map[update.callback_query.message.message_id]
+			state_function(update, context, selector)
 
 	# Message handler
 	def handle_message(self, update, context):
@@ -261,26 +275,64 @@ class GeconsultaInstanceBot:
 			self.input_state = InputState.INPUT_COURSE_NAME
 
 			# Create inline keyboard and reply
+			self.course_name_selector.fetch_data()
 			keyboard = self.course_name_selector.get_inline_keyboard()
-			update.message.reply_text("¡Genial! Ahora selecciona el nombre de la materia ☺️", reply_markup = keyboard)
+			update.message.reply_text("¡Genial! Ahora selecciona el nombre de la materia ✒️", reply_markup = keyboard)
 
 		else:
 			reply_text = "Parece que no enviaste un nombre válido 🤔\n" + \
 						 "Por favor, inténtalo de nuevo 👇"
 			update.message.reply_text(reply_text)
 
-	def handle_course_name(self, update, context):
-		# TODO: implement this stuff :P
-		pass
+	def handle_course_name(self, update, context, selector = None):
 
-	def handle_assist_name(self, update, context):
-		pass
+		# Only accept callback queries as input
+		if update.callback_query is not None and selector is not None:
+			data = self.course_name_selector.handle_callback_query(update, context)
 
-	def handle_aux_name(self, update, context):
-		pass
+			# If data is extracted, push it and change state
+			if data is not None:
+				self.consulta.course_name = data
+				self.input_state = InputState.INPUT_ASSIST_NAME
+				
+				self.assist_name_selector.fetch_data()
+				keyboard = self.assist_name_selector.get_inline_keyboard()
+				update.callback_query.message.reply_text("¡Muy bien! Ahora dime el nombre del miembro encargado 🤓", reply_markup = keyboard)
+
+
+	def handle_assist_name(self, update, context, selector = None):
+
+		# Only accept callback queries as input
+		if update.callback_query is not None and selector is not None:
+			data = self.assist_name_selector.handle_callback_query(update, context)
+
+			# If data is extracted, push it and change state
+			if data is not None:
+				self.consulta.assistant_name = data
+				self.input_state = InputState.INPUT_AUX_NAME
+				
+				# Reutilize the same selector
+				self.assist_name_selector.reset()
+				self.assist_name_selector.fetch_data()
+				keyboard = self.assist_name_selector.get_inline_keyboard()
+				update.callback_query.message.reply_text("¡Excelente! Ahora dime el nombre del miembro auxiliar 🤝", reply_markup = keyboard)
+
+	def handle_aux_name(self, update, context, selector = None):
+
+		# Only accept callback queries as input
+		if update.callback_query is not None and selector is not None:
+			data = self.assist_name_selector.handle_callback_query(update, context)
+
+			# If data is extracted, push it and change state
+			if data is not None:
+				self.consulta.auxiliary_name = data
+				self.input_state = InputState.INPUT_RECEIVED_DATE
+				
+				# Reutilize the same selector
+				update.callback_query.message.reply_text("¡Tu puedes Sam! Solo faltan las fechas!!")
 
 	def handle_received_date(self, update, context):
-		pass
+		print("GeconsultaInstanceBot::handle_received_date")
 
 	def handle_start_date(self, update, context):
 		pass
@@ -290,6 +342,24 @@ class GeconsultaInstanceBot:
 
 	def handle_input_end(self, update, context):
 		pass
+
+	# Auxiliary Methods
+	def current_selector(self):
+
+		# No selectors are exposed if not authenticated
+		if self.auth_state == AuthState.AUTH_IS_AUTHENTICATED:
+			
+			# Determine the corresponding selector
+			if self.input_state == InputState.INPUT_COURSE_NAME:
+				return self.course_name_selector
+
+			elif self.input_state == InputState.INPUT_ASSIST_NAME:
+				return self.assist_name_selector
+
+			elif self.input_state == InputState.INPUT_AUX_NAME:
+				return self.assist_name_selector
+
+		return None
 
 class GeconsultasBot():
 

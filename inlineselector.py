@@ -7,8 +7,13 @@ SELECTOR_RIGHT_BUTTON_TAG 	= "»"
 SELECTOR_LEFT_BUTTON_TAG 	= "«"
 
 class InlineSelectorAction(Enum):
-	ACTION_RIGHT = "$right"
-	ACTION_LEFT = "$left"
+	ACTION_RIGHT 	= "$right"
+	ACTION_LEFT 	= "$left"
+	ACTION_NO_OP 	= "$noop"
+
+	@classmethod
+	def has_action(cls, action_string):
+		return action_string in [member.value for member in cls]
 
 class InlineSelectorState(Enum):
 	IDLE 				= 0
@@ -24,21 +29,38 @@ class InlineSelector():
 		self.data_function 	= data_function
 		self.page_length 	= n_rows
 		self.page_index		= 0
+		self.data 			= None
 
-	def is_action(string):
+	def is_action(self, string):
 		return string.startswith("$")
+
+	def is_action_valid(self, action):
+
+		# Check for no-ops
+		if action == InlineSelectorAction.ACTION_NO_OP.value:
+			return False
+
+		# Check for bounds first
+		if action == InlineSelectorAction.ACTION_LEFT.value and self.page_index == 0:
+			return False
+
+		if action == InlineSelectorAction.ACTION_RIGHT.value and (self.page_index + 1) * self.page_length >= len(self.data):
+			return False
+
+		return True
 
 	def get_inline_keyboard(self):
 
-		# Get latest data
-		self.fetch_data()
+		# Return None if data is not present
+		if self.data is None:
+			return None
 
 		# Create fixed buttons
 		right_button 	= InlineKeyboardButton(SELECTOR_RIGHT_BUTTON_TAG, callback_data = InlineSelectorAction.ACTION_RIGHT.value)
 		left_button 	= InlineKeyboardButton(SELECTOR_LEFT_BUTTON_TAG, callback_data = InlineSelectorAction.ACTION_LEFT.value)
 
 		# Create data buttons from page index
-		buttons = [[InlineKeyboardButton(x, callback_data = x)] for x in self.data[self.page_index * self.page_length : self.page_length]]
+		buttons = [[InlineKeyboardButton(x, callback_data = x)] for x in self.data[self.page_index * self.page_length : (self.page_index + 1) * self.page_length]]
 
 		# Append dynamic buttons and build keyboard
 		buttons.append([left_button, right_button])
@@ -54,10 +76,49 @@ class InlineSelector():
 		# Fetch latest data, and filter out empty strings
 		self.data = list(filter(lambda val : val != "", self.data_function()))
 
-	def handle_page_change(self, is_right = True):
-		pass
+	def handle_selector_action(self, update, context, action):
+		
+		is_valid = self.is_action_valid(action)
+
+		# If invalid, do nothing
+		if not is_valid:
+			return
+
+		# Update page index
+		step = 1 if action == InlineSelectorAction.ACTION_RIGHT.value else -1
+		self.page_index += step
+
+		# Update reply markup with new keyboard
+		keyboard = self.get_inline_keyboard()
+		update.callback_query.edit_message_reply_markup(reply_markup = keyboard)
 
 	def handle_callback_query(self, update, context):
-		pass
+		
+		# Safety check
+		if update.callback_query.data is not None and self.selector_state == InlineSelectorState.SELECTION_ACTIVE:
 
+			# Get data
+			data_string = update.callback_query.data
+
+			# Check if is action
+			if self.is_action(data_string) and InlineSelectorAction.has_action(data_string):
+				self.handle_selector_action(update, context, data_string)
+				return None
+
+			# If it's not an action, collapse keyboard to choide made
+			default_button = InlineKeyboardButton(data_string, callback_data = InlineSelectorAction.ACTION_NO_OP.value)
+			keyboard = InlineKeyboardMarkup([[default_button]])
+			update.callback_query.edit_message_reply_markup(reply_markup = keyboard)
+
+			# Return data
+			self.selector_state = InlineSelectorState.SELECTION_COMPLETE
+			return data_string
+
+	def reset(self):
+
+		# reset state of selector
+		self.selector_state = InlineSelectorState.IDLE
+		self.page_index		= 0
+		self.data 			= None
+				
 
