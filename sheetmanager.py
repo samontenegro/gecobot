@@ -15,6 +15,8 @@ WORKSHEET_REGISTER 	= "REGISTRO"
 
 # Utility values
 REGISTRY_INPUT_ROW_OFFSET = 4
+REGISTRY_RESPONSE_TIME_FORMULA = "=E{offset}-D{offset}".format(offset=REGISTRY_INPUT_ROW_OFFSET)
+REGISTRY_DURATION_TIME_FORMULA = "=F{offset}-E{offset}".format(offset=REGISTRY_INPUT_ROW_OFFSET)
 
 # Base Enum class for sheet enumerations
 class SheetEnum(Enum):
@@ -50,7 +52,6 @@ class SheetState(Enum):
 	SHEET_NOT_INITIALIZED 	= -1
 	SHEET_READY 			= 0
 
-
 class Sheet():
 
 	def __init__(self, client):
@@ -78,9 +79,27 @@ class Sheet():
 	def get_data_from_field(self, field):
 		if self.is_ready():
 			key = field.get_key()
-			return [ row_dict[key] for row_dict in self.worksheet_data.get_all_records()]
+			return [row_dict[key] for row_dict in self.worksheet_data.get_all_records()]
 
 		return None
+
+	def get_course_code_from_course_name(self, course_name):
+
+		# Fetch course data arrays
+		course_names = self.get_data_from_field(DataSheetEnum.COURSE_NAME)
+		course_codes = self.get_data_from_field(DataSheetEnum.COURSE_CODE)
+		
+		# Default value for course code
+		course_code = "N/A"
+
+		try:
+			index = course_names.index(course_name)
+			course_code = course_codes[index]
+		except Exception:
+			# Either ValueError or IndexError; simply return 'N/A'
+			pass
+
+		return course_code
 
 	# Helper method to check if instance is ready
 	def is_ready(self):
@@ -88,9 +107,29 @@ class Sheet():
 
 	# Method for entering consultas into the REGISTER worksheet
 	def enter_row_data(self, consulta = None):
-		if self.is_ready():
-			# @salonso testing
-			self.worksheet_register.insert_row([consulta, 2, "=A2+B2"], REGISTRY_INPUT_ROW_OFFSET, "USER_ENTERED")
+
+		# Only enter data if instance is ready
+		if self.is_ready() and consulta is not None:
+
+			# Compute course_code from course name
+			course_code = self.get_course_code_from_course_name(consulta.course_name)
+
+			# Build data for row
+			data_row = [
+				consulta.student_name,
+				consulta.course_name,
+				course_code,
+				consulta.received_date,
+				consulta.start_date,
+				consulta.end_date,
+				REGISTRY_RESPONSE_TIME_FORMULA,
+				REGISTRY_DURATION_TIME_FORMULA,
+				consulta.assistant_name,
+				consulta.auxiliary_name
+			]
+
+			# Push request!
+			self.worksheet_register.insert_row(data_row, REGISTRY_INPUT_ROW_OFFSET, "USER_ENTERED")
 
 # Simple class for managing spreadsheet operations using Google Sheets API
 class SheetManager():

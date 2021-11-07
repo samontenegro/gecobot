@@ -2,18 +2,22 @@ from enum import Enum
 from telegram import InlineKeyboardMarkup, InlineKeyboardButton
 
 # Default consts
-SELECTOR_ROWS_DEFAULT 		= 5
-SELECTOR_RIGHT_BUTTON_TAG 	= "»"
-SELECTOR_LEFT_BUTTON_TAG 	= "«"
+SELECTOR_ROWS_DEFAULT 		= 4
 
 class InlineSelectorAction(Enum):
-	ACTION_RIGHT 	= "$right"
-	ACTION_LEFT 	= "$left"
-	ACTION_NO_OP 	= "$noop"
+	ACTION_RIGHT 	= ("»", "$right")
+	ACTION_LEFT 	= ("«", "$left")
+	ACTION_NO_OP 	= ("", "$noop")
 
 	@classmethod
 	def has_action(cls, action_string):
-		return action_string in [member.value for member in cls]
+		return action_string in [member.value[1] for member in cls]
+
+	def tag(member):
+		return member.value[0]
+
+	def action_string(member):
+		return member.value[1]
 
 class InlineSelectorState(Enum):
 	IDLE 				= 0
@@ -37,14 +41,14 @@ class InlineSelector():
 	def is_action_valid(self, action):
 
 		# Check for no-ops
-		if action == InlineSelectorAction.ACTION_NO_OP.value:
+		if action == InlineSelectorAction.ACTION_NO_OP.action_string():
 			return False
 
 		# Check for bounds first
-		if action == InlineSelectorAction.ACTION_LEFT.value and self.page_index == 0:
+		if action == InlineSelectorAction.ACTION_LEFT.action_string() and self.page_index == 0:
 			return False
 
-		if action == InlineSelectorAction.ACTION_RIGHT.value and (self.page_index + 1) * self.page_length >= len(self.data):
+		if action == InlineSelectorAction.ACTION_RIGHT.action_string() and (self.page_index + 1) * self.page_length >= len(self.data):
 			return False
 
 		return True
@@ -56,8 +60,8 @@ class InlineSelector():
 			return None
 
 		# Create fixed buttons
-		right_button 	= InlineKeyboardButton(SELECTOR_RIGHT_BUTTON_TAG, callback_data = InlineSelectorAction.ACTION_RIGHT.value)
-		left_button 	= InlineKeyboardButton(SELECTOR_LEFT_BUTTON_TAG, callback_data = InlineSelectorAction.ACTION_LEFT.value)
+		right_button 	= InlineKeyboardButton(InlineSelectorAction.ACTION_RIGHT.tag(), callback_data = InlineSelectorAction.ACTION_RIGHT.action_string())
+		left_button 	= InlineKeyboardButton(InlineSelectorAction.ACTION_LEFT.tag(), callback_data = InlineSelectorAction.ACTION_LEFT.action_string())
 
 		# Create data buttons from page index
 		buttons = [[InlineKeyboardButton(x, callback_data = x)] for x in self.data[self.page_index * self.page_length : (self.page_index + 1) * self.page_length]]
@@ -85,7 +89,7 @@ class InlineSelector():
 			return
 
 		# Update page index
-		step = 1 if action == InlineSelectorAction.ACTION_RIGHT.value else -1
+		step = 1 if action == InlineSelectorAction.ACTION_RIGHT.action_string() else -1
 		self.page_index += step
 
 		# Update reply markup with new keyboard
@@ -106,7 +110,7 @@ class InlineSelector():
 				return None
 
 			# If it's not an action, collapse keyboard to choide made
-			default_button = InlineKeyboardButton(data_string, callback_data = InlineSelectorAction.ACTION_NO_OP.value)
+			default_button = InlineKeyboardButton(data_string, callback_data = InlineSelectorAction.ACTION_NO_OP.action_string())
 			keyboard = InlineKeyboardMarkup([[default_button]])
 			update.callback_query.edit_message_reply_markup(reply_markup = keyboard)
 

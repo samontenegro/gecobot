@@ -15,6 +15,7 @@ from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, Callb
 # Support modules
 from sheetmanager import SheetManager, DataSheetEnum
 from inlineselector import InlineSelector
+from inlinedateselector import InlineDateSelector
 
 # Instantiate and configure logger
 logging.basicConfig(
@@ -52,8 +53,9 @@ def hash_string(string):
 class Consulta:
 
 	# Date values
-	start_date:date 	= attr.ib(default = None)
-	end_date:date 		= attr.ib(default = None)
+	received_date:str 	= attr.ib(converter=str, default="")
+	start_date:str 		= attr.ib(converter=str, default="")
+	end_date:str 		= attr.ib(converter=str, default="")
 
 	# Names and course information
 	assistant_name:str 	= attr.ib(converter=str, default="")
@@ -71,6 +73,9 @@ class GeconsultaInstanceBot:
 		self.input_state 	= InputState.INPUT_STATE_IDLE
 		self.auth_state 	= AuthState.AUTH_STATE_IDLE
 
+		# Sheet manager reference for pushing requests
+		self.sheet_manager = sheet_manager
+
 		# Receive password hash for authentication
 		self.auth_hash 	= auth_hash
 
@@ -79,6 +84,9 @@ class GeconsultaInstanceBot:
 		assist_name_field = DataSheetEnum.ASSIST_NAME
 		self.course_name_selector = InlineSelector(sheet_manager.get_data_from_field_functor(course_name_field))
 		self.assist_name_selector = InlineSelector(sheet_manager.get_data_from_field_functor(assist_name_field))
+
+		# Instantiate date selector
+		self.date_selector = InlineDateSelector()
 
 		# Instantiate selector map
 		self.selector_map = {}
@@ -154,11 +162,16 @@ class GeconsultaInstanceBot:
 	def restart_inline_selectors(self):
 		self.course_name_selector.reset()
 		self.assist_name_selector.reset()
+		self.date_selector.reset()
 		self.selector_map = {}
 
 	def restart(self, update, context, noupdate=False):
 
 		if self.auth_state == AuthState.AUTH_IS_AUTHENTICATED:
+
+			# Log data entry abort
+			if self.input_state.value < InputState.INPUT_STATE_END.value:
+				logger.info("Data entry aborted by user {id}".format(id=update.message.from_user.id))
 
 			# Reset input state and input object
 			self.consulta = Consulta()
@@ -166,8 +179,6 @@ class GeconsultaInstanceBot:
 
 			# Reset inline objects to their original state
 			self.restart_inline_selectors()
-
-			logger.info("Data entry aborted by user {id}".format(id=update.message.from_user.id))
 
 			# User update
 			if not noupdate:
@@ -228,7 +239,7 @@ class GeconsultaInstanceBot:
 		elif self.auth_state == AuthState.AUTH_IS_AUTHENTICATING:
 			state_function = self.auth_state_map[self.auth_state]
 
-		if self.auth_state != AuthState.AUTH_IS_AUTHENTICATING:
+		if self.auth_state.value > AuthState.AUTH_IS_AUTHENTICATING.value:
 			logger.info("Handling message {msg} by user {id}".format(msg = update.message.text, id=update.message.from_user.id))
 
 		# If a state function has been specified, call it and pass down parameters
@@ -277,7 +288,7 @@ class GeconsultaInstanceBot:
 			# Create inline keyboard and reply
 			self.course_name_selector.fetch_data()
 			keyboard = self.course_name_selector.get_inline_keyboard()
-			update.message.reply_text("¡Genial! Ahora selecciona el nombre de la materia ✒️", reply_markup = keyboard)
+			update.message.reply_text("¡Genial! Selecciona el nombre de la materia ✒️", reply_markup = keyboard)
 
 		else:
 			reply_text = "Parece que no enviaste un nombre válido 🤔\n" + \
@@ -288,7 +299,7 @@ class GeconsultaInstanceBot:
 
 		# Only accept callback queries as input
 		if update.callback_query is not None and selector is not None:
-			data = self.course_name_selector.handle_callback_query(update, context)
+			data = selector.handle_callback_query(update, context)
 
 			# If data is extracted, push it and change state
 			if data is not None:
@@ -297,14 +308,14 @@ class GeconsultaInstanceBot:
 				
 				self.assist_name_selector.fetch_data()
 				keyboard = self.assist_name_selector.get_inline_keyboard()
-				update.callback_query.message.reply_text("¡Muy bien! Ahora dime el nombre del miembro encargado 🤓", reply_markup = keyboard)
+				update.callback_query.message.reply_text("¡Muy bien! Selecciona el nombre del miembro encargado 🤓", reply_markup = keyboard)
 
 
 	def handle_assist_name(self, update, context, selector = None):
 
 		# Only accept callback queries as input
 		if update.callback_query is not None and selector is not None:
-			data = self.assist_name_selector.handle_callback_query(update, context)
+			data = selector.handle_callback_query(update, context)
 
 			# If data is extracted, push it and change state
 			if data is not None:
@@ -315,33 +326,79 @@ class GeconsultaInstanceBot:
 				self.assist_name_selector.reset()
 				self.assist_name_selector.fetch_data()
 				keyboard = self.assist_name_selector.get_inline_keyboard()
-				update.callback_query.message.reply_text("¡Excelente! Ahora dime el nombre del miembro auxiliar 🤝", reply_markup = keyboard)
+				update.callback_query.message.reply_text("¡Excelente! Selecciona el nombre del miembro auxiliar 🤝", reply_markup = keyboard)
 
 	def handle_aux_name(self, update, context, selector = None):
 
 		# Only accept callback queries as input
 		if update.callback_query is not None and selector is not None:
-			data = self.assist_name_selector.handle_callback_query(update, context)
+			data = selector.handle_callback_query(update, context)
 
 			# If data is extracted, push it and change state
 			if data is not None:
 				self.consulta.auxiliary_name = data
 				self.input_state = InputState.INPUT_RECEIVED_DATE
 				
-				# Reutilize the same selector
-				update.callback_query.message.reply_text("¡Tu puedes Sam! Solo faltan las fechas!!")
+				# Use the date selector
+				keyboard = self.date_selector.get_inline_keyboard()
+				update.callback_query.message.reply_text("¡Recibido! Ahora selecciona la fecha en que se recibió la consulta 📆", reply_markup = keyboard)
 
-	def handle_received_date(self, update, context):
-		print("GeconsultaInstanceBot::handle_received_date")
+	def handle_received_date(self, update, context, selector = None):
 
-	def handle_start_date(self, update, context):
-		pass
+		# Only accept callback queries as input
+		if update.callback_query is not None and selector is not None:
+			data = selector.handle_callback_query(update, context)
 
-	def handle_end_date(self, update, context):
-		pass
+			# If data is extracted, push it and change state
+			if data is not None:
+				self.consulta.received_date = data
+				self.input_state = InputState.INPUT_START_DATE
+				
+				# Reutilize the date selector
+				self.date_selector.reset()
+				keyboard = self.date_selector.get_inline_keyboard()
+				update.callback_query.message.reply_text("¡Buenísimo! Selecciona la fecha en que se atendió la consulta 📆", reply_markup = keyboard)
+
+	def handle_start_date(self, update, context, selector = None):
+
+		# Only accept callback queries as input
+		if update.callback_query is not None and selector is not None:
+			data = selector.handle_callback_query(update, context)
+
+			# If data is extracted, push it and change state
+			if data is not None:
+				self.consulta.start_date = data
+				self.input_state = InputState.INPUT_END_DATE
+				
+				# Reutilize the date selector
+				self.date_selector.reset()
+				keyboard = self.date_selector.get_inline_keyboard()
+				update.callback_query.message.reply_text("¡Perfecto! Por último, selecciona la fecha en que terminó la consulta 📆", reply_markup = keyboard)
+
+	def handle_end_date(self, update, context, selector = None):
+
+		# Only accept callback queries as input
+		if update.callback_query is not None and selector is not None:
+			data = selector.handle_callback_query(update, context)
+
+			# If data is extracted, push it and change state
+			if data is not None:
+				self.consulta.end_date = data
+				self.input_state = InputState.INPUT_STATE_END
+
+				logger.info("Data entry completed by user {id}".format(id=update.callback_query.from_user.id))
+
+				# self.consulta should be ready at this point! Send a Sheet Manager request!
+				self.sheet_manager.request_input(self.consulta)
+				update.callback_query.message.reply_text("¡Tu consulta ha sido enviada! 🎉🎉")
+				update.callback_query.message.reply_text("Puedes confirmar luego en la spreadsheet si tu consulta ha sido procesada correctamente 🔎")
+				update.callback_query.message.reply_text("¡Que tengas un buen día! ✨ Recuerda que puedes usar /registrar para subir una nueva consulta 🙂")
+
+				# Restart bot instance
+				self.restart(update, context, True)
 
 	def handle_input_end(self, update, context):
-		pass
+		pass	
 
 	# Auxiliary Methods
 	def current_selector(self):
@@ -358,6 +415,15 @@ class GeconsultaInstanceBot:
 
 			elif self.input_state == InputState.INPUT_AUX_NAME:
 				return self.assist_name_selector
+
+			elif self.input_state == InputState.INPUT_RECEIVED_DATE:
+				return self.date_selector
+
+			elif self.input_state == InputState.INPUT_START_DATE:
+				return self.date_selector
+
+			elif self.input_state == InputState.INPUT_END_DATE:
+				return self.date_selector
 
 		return None
 
