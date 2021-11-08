@@ -2,7 +2,7 @@ from enum import Enum
 from telegram import InlineKeyboardMarkup, InlineKeyboardButton
 
 # Default consts
-SELECTOR_ROWS_DEFAULT 		= 4
+SELECTOR_ROWS_DEFAULT = 4
 
 class InlineSelectorAction(Enum):
 	ACTION_RIGHT 	= ("»", "$right")

@@ -1,10 +1,9 @@
 import calendar
-import locale
 from datetime import datetime
 from enum import Enum
 from telegram import InlineKeyboardMarkup, InlineKeyboardButton
 
-# Date string format - todo: @salonso I don't want to work with dates rn, let's do it later if we have time
+# Date string format - todo: @salonso I don't want to work with dates rn, and we have to do this conversion anyways; let's do it later if we have time
 DATE_STR_FORMAT = "{Y}/{M}/{D} {h}:{m}:00"
 
 # Auxiliary constants

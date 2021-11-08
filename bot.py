@@ -3,13 +3,10 @@ import os
 import logging
 import attr
 import hashlib
-from datetime import date
 from enum import Enum
 
 # Telegram bot API
 import telegram
-from telegram import ReplyKeyboardMarkup
-from telegram import InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, CallbackQueryHandler
 
 # Support modules
