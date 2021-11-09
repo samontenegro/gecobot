@@ -429,8 +429,9 @@ class GeconsultasBot():
 	def __init__(self):
 
 		# Fetch API token and hashed password from environment variables
-		self.token 		= os.getenv("T_API_TOKEN")
-		self.auth_hash 	= os.getenv("T_AUTH_HASH")
+		self.token 			= os.getenv("T_API_TOKEN")
+		self.auth_hash 		= os.getenv("T_AUTH_HASH")
+		self.deploy_mode	= os.getenv("T_DEPLOY_MODE")
 
 		# Halt runtime if token or hash aren't set
 		if not self.token or not self.auth_hash:
@@ -451,8 +452,23 @@ class GeconsultasBot():
 		# Add handlers and start bot
 		self.add_handlers()
 
-		self.updater.start_polling()
-		self.updater.idle()
+		if self.deploy_mode == "prod":
+
+			# if deployed to production environment, set up webhook
+			PORT = int(os.environ.get('PORT', '8443'))
+
+			# Start and set webhook
+			T_APP_NAME = os.getenv("T_APP_NAME")
+
+			# Log init
+			logger.info("Initializing main bot at port {port}".format(port=PORT))
+
+			self.updater.start_webhook(listen = "0.0.0.0", port = PORT, url_path = self.token, 
+										webhook_url = f"https://{T_APP_NAME}.herokuapp.com/{self.token}")
+
+		else:	
+			self.updater.start_polling()
+			self.updater.idle()
 
 	def add_handlers(self):
 
