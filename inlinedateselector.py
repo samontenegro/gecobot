@@ -1,5 +1,5 @@
 import calendar
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from enum import Enum
 from telegram import InlineKeyboardMarkup, InlineKeyboardButton
 
@@ -10,6 +10,9 @@ DATE_STR_FORMAT = "{Y}/{M}/{D} {h}:{m}:00"
 CONST_MAX_MONTHS	= 12
 CONST_MAX_HOURS 	= 24
 CONST_MAX_MINUTES 	= 60
+
+# Default timezone, UTC-4 (VST)
+DEFAULT_TIMEZONE = timezone(-timedelta(hours=4))
 
 def pad_zeros(number, width):
 	return str(number).rjust(width, "0")
@@ -51,7 +54,7 @@ class InlineDateSelector():
 		self.confirmed_date = None
 
 		# Set initial date values
-		today 				= datetime.today()
+		today 				= datetime.now(DEFAULT_TIMEZONE)
 		self.year 			= today.year
 		self.month_number 	= today.month
 
@@ -263,14 +266,17 @@ class InlineDateSelector():
 
 					return self.confirmed_date
 
-	def reset(self):
+	def reset(self, persist = False):
 
 		# Reset state of selector
 		self.selector_state = InlineDateSelectorState.IDLE
 		self.confirmed_date = None
 
-		# Reset date variables
-		today 				= datetime.today()
+		# In some scenarios, we know two successive dates will be really close
+		if persist: return
+
+		# If no persist, reset date variables
+		today 				= datetime.now(DEFAULT_TIMEZONE)
 		self.year 			= today.year
 		self.month_number 	= today.month
 		self.month_abbr		= self.month_list[self.month_number]

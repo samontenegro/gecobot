@@ -352,7 +352,7 @@ class GeconsultaInstanceBot:
 				self.input_state = InputState.INPUT_START_DATE
 				
 				# Reutilize the date selector
-				self.date_selector.reset()
+				self.date_selector.reset(persist=True)
 				keyboard = self.date_selector.get_inline_keyboard()
 				update.callback_query.message.reply_text("¡Buenísimo! Selecciona la fecha en que se atendió la consulta 📆", reply_markup = keyboard)
 
@@ -368,7 +368,7 @@ class GeconsultaInstanceBot:
 				self.input_state = InputState.INPUT_END_DATE
 				
 				# Reutilize the date selector
-				self.date_selector.reset()
+				self.date_selector.reset(persist=True)
 				keyboard = self.date_selector.get_inline_keyboard()
 				update.callback_query.message.reply_text("¡Perfecto! Por último, selecciona la fecha en que terminó la consulta 📆", reply_markup = keyboard)
 
@@ -428,10 +428,12 @@ class GeconsultasBot():
 
 	def __init__(self):
 
+		# Fetch deploy mode
+		self.deploy_mode = os.getenv("T_DEPLOY_MODE")
+
 		# Fetch API token and hashed password from environment variables
-		self.token 			= os.getenv("T_API_TOKEN")
-		self.auth_hash 		= os.getenv("T_AUTH_HASH")
-		self.deploy_mode	= os.getenv("T_DEPLOY_MODE")
+		self.token = os.getenv("T_API_TOKEN") if self.deploy_mode == "prod" else os.getenv("T_DEV_API_TOKEN")
+		self.auth_hash = os.getenv("T_AUTH_HASH")
 
 		# Halt runtime if token or hash aren't set
 		if not self.token or not self.auth_hash:
@@ -444,7 +446,7 @@ class GeconsultasBot():
 		self.sheet_manager = SheetManager()
 
 		# Instantiate Updater and Dispatcher
-		self.updater 	= Updater(self.token, use_context=True)
+		self.updater 	= Updater(self.token, use_context=True, workers=8)
 		self.dispatcher = self.updater.dispatcher
 
 	def run(self):
