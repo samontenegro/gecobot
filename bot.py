@@ -21,6 +21,11 @@ logging.basicConfig(
 
 logger = logging.getLogger()
 
+class HandlerGroup(Enum):
+	CALLBACK_QUERY_HANDLER 	= 0
+	MESSAGE_HANDLER 		= 1
+	COMMAND_HANDLER 		= 2
+
 # State enum for data entry steps
 class InputState(Enum):
 	INPUT_STATE_IDLE 	= 0
@@ -368,7 +373,7 @@ class GeconsultaInstanceBot:
 				self.input_state = InputState.INPUT_END_DATE
 				
 				# Reutilize the date selector
-				self.date_selector.reset(persist=True)
+				self.date_selector.reset(persist=False)
 				keyboard = self.date_selector.get_inline_keyboard()
 				update.callback_query.message.reply_text("¡Perfecto! Por último, selecciona la fecha en que terminó la consulta 📆", reply_markup = keyboard)
 
@@ -486,20 +491,20 @@ class GeconsultasBot():
 		message_handler = MessageHandler(Filters.text, self.handle_message)
 
 		# Data and flow
-		self.dispatcher.add_handler(start_command)
-		self.dispatcher.add_handler(help_command)
-		self.dispatcher.add_handler(register_command)
-		self.dispatcher.add_handler(restart_command)
+		self.dispatcher.add_handler(start_command, 		HandlerGroup.COMMAND_HANDLER.value)
+		self.dispatcher.add_handler(help_command, 		HandlerGroup.COMMAND_HANDLER.value)
+		self.dispatcher.add_handler(register_command, 	HandlerGroup.COMMAND_HANDLER.value)
+		self.dispatcher.add_handler(restart_command, 	HandlerGroup.COMMAND_HANDLER.value)
 
 		# Authentication
-		self.dispatcher.add_handler(auth_command)
-		self.dispatcher.add_handler(logout_command)
+		self.dispatcher.add_handler(auth_command, 		HandlerGroup.COMMAND_HANDLER.value)
+		self.dispatcher.add_handler(logout_command, 	HandlerGroup.COMMAND_HANDLER.value)
 
 		# Message handler
-		self.dispatcher.add_handler(message_handler)
+		self.dispatcher.add_handler(message_handler, 	HandlerGroup.MESSAGE_HANDLER.value)
 
 		# Inline handler
-		self.dispatcher.add_handler(CallbackQueryHandler(self.handle_inline_query))
+		self.dispatcher.add_handler(CallbackQueryHandler(self.handle_inline_query), HandlerGroup.CALLBACK_QUERY_HANDLER.value)
 
 	# Inline query handler
 	def handle_inline_query(self, update, context):

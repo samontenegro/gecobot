@@ -208,6 +208,7 @@ class InlineDateSelector():
 
 		keyboard = InlineKeyboardMarkup([row_data])
 		update.callback_query.edit_message_reply_markup(reply_markup = keyboard)
+		update.callback_query.answer()
 
 	def handle_selector_action(self, update, context, action):
 		
@@ -241,6 +242,7 @@ class InlineDateSelector():
 
 		keyboard = self.get_inline_keyboard()
 		update.callback_query.edit_message_reply_markup(reply_markup = keyboard)
+		update.callback_query.answer()
 
 		return False
 

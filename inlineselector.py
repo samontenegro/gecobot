@@ -95,6 +95,7 @@ class InlineSelector():
 		# Update reply markup with new keyboard
 		keyboard = self.get_inline_keyboard()
 		update.callback_query.edit_message_reply_markup(reply_markup = keyboard)
+		update.callback_query.answer()
 
 	def handle_callback_query(self, update, context):
 		
@@ -113,6 +114,7 @@ class InlineSelector():
 			default_button = InlineKeyboardButton(data_string, callback_data = InlineSelectorAction.ACTION_NO_OP.action_string())
 			keyboard = InlineKeyboardMarkup([[default_button]])
 			update.callback_query.edit_message_reply_markup(reply_markup = keyboard)
+			update.callback_query.answer()
 
 			# Return data
 			self.selector_state = InlineSelectorState.SELECTION_COMPLETE
